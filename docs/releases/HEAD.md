@@ -16,3 +16,6 @@
   `413`, and close idle keep-alive connections after two minutes.
 - Require `https` for `backend_base_url` unless it points at a loopback
   address, so the Codex access token is never sent in clear text.
+- Pin every GitHub Action in CI and release workflows to a full commit SHA,
+  so a moved or compromised tag cannot change what builds and publishes the
+  release artifacts.
