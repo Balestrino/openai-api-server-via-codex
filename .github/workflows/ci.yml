@@ -119,6 +119,9 @@ jobs:
       - name: Run validation suite
         run: uv run tox
 
+      - name: Check Go vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
       - name: Build and smoke-test platform wheels
         run: |
           rm -rf build
