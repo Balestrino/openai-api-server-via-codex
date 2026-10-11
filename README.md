@@ -309,13 +309,27 @@ Configure an incoming API key when other machines or untrusted processes can
 reach the server:
 
 ```console
-$ openai-api-server-via-codex \
-    --host 0.0.0.0 \
-    --api-key local-secret
+$ OPENAI_VIA_CODEX_API_KEY=local-secret openai-api-server-via-codex \
+    --host 0.0.0.0
 ```
 
 Clients must then send `Authorization: Bearer local-secret`. `/healthz` remains
-unauthenticated.
+unauthenticated. Prefer the environment variable or `[server].api_key` over
+`--api-key`: a command-line value is visible to other local users in the
+process list.
+
+Without an API key, `/v1/...` requests are accepted only when the `Host` header
+is `localhost`, a `*.localhost` name, or an IP address. This blocks DNS
+rebinding, where a web page reaches the local server under its own domain name.
+To reach the server by another host name without an API key, list it in
+`--allowed-hosts`, `OPENAI_VIA_CODEX_ALLOWED_HOSTS`, or
+`[server].allowed_hosts`. Cross-origin browser writes (detected through the
+`Sec-Fetch-Site` and `Origin` headers) are always rejected; SDK clients do not
+send these headers.
+
+Every client that passes these checks acts with your ChatGPT account: unknown
+`/v1/...` paths are forwarded to the Codex backend, and all clients share the
+same stored responses and chat completions.
 
 > [!CAUTION]
 > Do not bind to `0.0.0.0` without an incoming API key unless the surrounding
@@ -567,6 +581,7 @@ verbose = false
 max_stored_items = 1000
 max_concurrent_requests = 10
 # api_key = "change-me"
+allowed_hosts = []
 
 [codex]
 auth_json = "~/.codex/auth.json"
@@ -587,6 +602,7 @@ stop_timeout = 10.0
 | `server.port` | `18080` | HTTP port |
 | `server.default_model` | `gpt-5.6-luna` | Model used when a request omits one |
 | `server.api_key` | unset | Protect incoming `/v1/...` requests |
+| `server.allowed_hosts` | `[]` | Host names accepted without an API key, besides `localhost` and IP addresses |
 | `server.max_stored_items` | `1000` | Bound local stores; `0` disables storage |
 | `server.max_concurrent_requests` | `10` | Bound HTTP requests/streams and open WebSocket connections; full capacity returns 503 with `Retry-After`; `0` disables the cap |
 | `server.timeout` | `300.0` | Codex backend timeout in seconds |

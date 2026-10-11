@@ -123,3 +123,27 @@ func TestForegroundServeAllowsPortZeroButDaemonRunRejectsIt(t *testing.T) {
 		t.Fatalf("daemon-run --port 0 error = %v", err)
 	}
 }
+
+func TestAllowedHostsFromFileEnvironmentAndFlag(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[server]\nallowed_hosts = [\"file.lan\"]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	if err := cfg.applyConfigFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.AllowedHosts) != 1 || cfg.AllowedHosts[0] != "file.lan" {
+		t.Fatalf("file allowed hosts = %#v", cfg.AllowedHosts)
+	}
+	t.Setenv("OPENAI_VIA_CODEX_ALLOWED_HOSTS", "env.lan, other.lan")
+	cfg.applyEnvironment()
+	if strings.Join(cfg.AllowedHosts, ",") != "env.lan,other.lan" {
+		t.Fatalf("env allowed hosts = %#v", cfg.AllowedHosts)
+	}
+	cfg.AllowedHosts = []string{"flag.lan"}
+	args := strings.Join(serverCommandArgs("serve", cfg), " ")
+	if !strings.Contains(args, "--allowed-hosts flag.lan") {
+		t.Fatalf("serve args = %q", args)
+	}
+}

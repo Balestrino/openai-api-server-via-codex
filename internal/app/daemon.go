@@ -38,8 +38,10 @@ func runDaemonCommand(command string, args []string) error {
 	stopSeconds := cfg.StopTimeout.Seconds()
 	fs.Float64Var(&stopSeconds, "stop-timeout", stopSeconds, "seconds to wait before force kill")
 	var backendTimeout *float64
+	allowedHosts := strings.Join(cfg.AllowedHosts, ",")
 	if command == "start" {
 		backendTimeout = addDaemonServerFlags(fs, &cfg)
+		fs.StringVar(&allowedHosts, "allowed-hosts", allowedHosts, "comma-separated host names accepted without an API key")
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -50,6 +52,7 @@ func runDaemonCommand(command string, args []string) error {
 	if backendTimeout != nil {
 		cfg.Timeout = time.Duration(*backendTimeout * float64(time.Second))
 	}
+	cfg.AllowedHosts = splitCommaList(allowedHosts)
 	if cfg.Port < 1 || cfg.Port > 65535 || stopSeconds <= 0 || cfg.Timeout <= 0 || cfg.MaxStored < 0 || cfg.Concurrency < 0 {
 		return errors.New("port, timeout, storage, concurrency, or stop-timeout is invalid")
 	}
@@ -198,6 +201,9 @@ func serverCommandArgs(command string, cfg config) []string {
 	}
 	if len(cfg.DropParams) > 0 {
 		args = append(args, "--drop-params", strings.Join(cfg.DropParams, ","))
+	}
+	if len(cfg.AllowedHosts) > 0 {
+		args = append(args, "--allowed-hosts", strings.Join(cfg.AllowedHosts, ","))
 	}
 	return args
 }

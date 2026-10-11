@@ -70,9 +70,9 @@ func serve(cfg config, version string) error {
 	log.Print(startupLogMessage(version, boundAddress))
 	if cfg.Verbose {
 		log.Printf(
-			"settings.resolved host=%s port=%d model=%s timeout=%s max_stored_items=%d max_concurrent_requests=%d auth_json=%s backend_base_url=%s api_key_configured=%t",
+			"settings.resolved host=%s port=%d model=%s timeout=%s max_stored_items=%d max_concurrent_requests=%d auth_json=%s backend_base_url=%s api_key_configured=%t allowed_hosts=%s",
 			cfg.Host, cfg.Port, cfg.Model, cfg.Timeout, cfg.MaxStored, cfg.Concurrency,
-			cfg.AuthJSON, cfg.BackendURL, cfg.APIKey != "",
+			cfg.AuthJSON, cfg.BackendURL, cfg.APIKey != "", strings.Join(cfg.AllowedHosts, ","),
 		)
 	}
 	serveResult := make(chan error, 1)
@@ -201,6 +201,16 @@ func (s *server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if !s.allowedHost(r.Host) {
+		log.Printf("request.host.error code=host_not_allowed method=%s path=%s host=%q", r.Method, redactSensitive(r.URL.Path), redactSensitive(r.Host))
+		writeError(w, 403, "Host header is not allowed. Configure an API key or add the host to allowed_hosts.", "invalid_request_error", nil, "host_not_allowed")
+		return
+	}
+	if err := crossOriginProtection.Check(r); err != nil {
+		log.Printf("request.origin.error code=cross_origin_request method=%s path=%s", r.Method, redactSensitive(r.URL.Path))
+		writeError(w, 403, "Cross-origin browser requests are not allowed.", "invalid_request_error", nil, "cross_origin_request")
+		return
+	}
 	if s.cfg.APIKey != "" && !validBearer(r.Header.Get("Authorization"), s.cfg.APIKey) {
 		log.Printf(
 			"request.auth.error code=invalid_api_key method=%s path=%s",
@@ -258,6 +268,31 @@ func isChatResourceRoute(method, resource string) bool {
 		return method == http.MethodGet || method == http.MethodPost || method == http.MethodDelete
 	}
 	return len(parts) == 2 && parts[0] != "" && parts[1] == "messages" && method == http.MethodGet
+}
+
+// Browsers send Sec-Fetch-Site/Origin on cross-site writes; SDK clients do not.
+var crossOriginProtection = http.NewCrossOriginProtection()
+
+// Without an API key, a DNS-rebinding page reaches the server under its own
+// host name. Such names are rejected; IP literals and localhost cannot be
+// rebound by another site.
+func (s *server) allowedHost(host string) bool {
+	if s.cfg.APIKey != "" {
+		return true
+	}
+	if name, _, err := net.SplitHostPort(host); err == nil {
+		host = name
+	}
+	host = strings.ToLower(strings.TrimSuffix(strings.Trim(host, "[]"), "."))
+	if net.ParseIP(host) != nil || host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	for _, allowed := range s.cfg.AllowedHosts {
+		if strings.EqualFold(host, allowed) {
+			return true
+		}
+	}
+	return false
 }
 
 func validBearer(header, key string) bool {

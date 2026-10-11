@@ -557,7 +557,7 @@ func TestBackendInterfaceMasksInjectedInternalFault(t *testing.T) {
 		responses: newResponseStore(1), chats: newChatStore(1),
 	}
 	response := httptest.NewRecorder()
-	s.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"input":"hello"}`)))
+	s.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", strings.NewReader(`{"input":"hello"}`)))
 	if response.Code != http.StatusInternalServerError || strings.Contains(response.Body.String(), "internal secret detail") {
 		t.Fatalf("fault response = %d %s", response.Code, response.Body.String())
 	}
