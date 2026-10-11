@@ -4,6 +4,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,6 +38,7 @@ type config struct {
 	Concurrency   int
 	Verbose       bool
 	DropParams    []string
+	AllowedHosts  []string
 	StateDir      string
 	PIDFile       string
 	LogFile       string
@@ -69,6 +72,9 @@ func (c *config) applyEnvironment() {
 	c.PIDFile = envString("OPENAI_VIA_CODEX_PID_FILE", c.PIDFile)
 	c.LogFile = envString("OPENAI_VIA_CODEX_LOG_FILE", c.LogFile)
 	c.StopTimeout = time.Duration(envFloat("OPENAI_VIA_CODEX_STOP_TIMEOUT", c.StopTimeout.Seconds()) * float64(time.Second))
+	if v := os.Getenv("OPENAI_VIA_CODEX_ALLOWED_HOSTS"); v != "" {
+		c.AllowedHosts = splitCommaList(v)
+	}
 }
 
 func Run(args []string, version string) error {
@@ -102,6 +108,8 @@ func Run(args []string, version string) error {
 	fs.StringVar(&cfg.ClientVersion, "client-version", cfg.ClientVersion, "client version header")
 	fs.StringVar(&cfg.AuthJSON, "auth-json", cfg.AuthJSON, "Codex auth.json path")
 	fs.StringVar(&cfg.APIKey, "api-key", cfg.APIKey, "incoming API key")
+	allowedHosts := strings.Join(cfg.AllowedHosts, ",")
+	fs.StringVar(&allowedHosts, "allowed-hosts", allowedHosts, "comma-separated host names accepted without an API key")
 	timeout := cfg.Timeout.Seconds()
 	fs.Float64Var(&timeout, "timeout", timeout, "backend timeout seconds")
 	fs.IntVar(&cfg.MaxStored, "max-stored-items", cfg.MaxStored, "maximum in-memory stored items")
@@ -126,15 +134,13 @@ func Run(args []string, version string) error {
 	if cfg.MaxStored < 0 || cfg.Concurrency < 0 || cfg.Port < minimumPort || cfg.Port > 65535 || timeout <= 0 || stopTimeout <= 0 {
 		return errors.New("port, timeout, max-stored-items, max-concurrent-requests, or stop-timeout is invalid")
 	}
+	if err := validateBackendURL(cfg.BackendURL); err != nil {
+		return err
+	}
 	cfg.Timeout = time.Duration(timeout * float64(time.Second))
 	cfg.StopTimeout = time.Duration(stopTimeout * float64(time.Second))
-	if dropParams != "" {
-		for _, value := range strings.Split(dropParams, ",") {
-			if value = strings.TrimSpace(value); value != "" {
-				cfg.DropParams = append(cfg.DropParams, value)
-			}
-		}
-	}
+	cfg.DropParams = append(cfg.DropParams, splitCommaList(dropParams)...)
+	cfg.AllowedHosts = splitCommaList(allowedHosts)
 	if command == "daemon-run" {
 		return runSupervised(cfg, version)
 	}
@@ -198,6 +204,8 @@ timeout = 300.0
 verbose = false
 max_stored_items = %d
 max_concurrent_requests = %d
+# Host names accepted without an API key, besides localhost and IP addresses.
+allowed_hosts = []
 
 [codex]
 auth_json = "~/.codex/auth.json"
@@ -264,6 +272,7 @@ type configFile struct {
 		MaxStoredItems        *int     `toml:"max_stored_items"`
 		MaxConcurrentRequests *int     `toml:"max_concurrent_requests"`
 		APIKey                *string  `toml:"api_key"`
+		AllowedHosts          []string `toml:"allowed_hosts"`
 	} `toml:"server"`
 	Codex struct {
 		AuthJSON       *string `toml:"auth_json"`
@@ -306,6 +315,9 @@ func (file *configFile) apply(c *config) {
 	if file.Server.APIKey != nil {
 		c.APIKey = *file.Server.APIKey
 	}
+	if file.Server.AllowedHosts != nil {
+		c.AllowedHosts = append([]string(nil), file.Server.AllowedHosts...)
+	}
 	if file.Codex.AuthJSON != nil {
 		c.AuthJSON = *file.Codex.AuthJSON
 	}
@@ -330,6 +342,32 @@ func (file *configFile) apply(c *config) {
 	if file.Daemon.StopTimeout != nil {
 		c.StopTimeout = time.Duration(*file.Daemon.StopTimeout * float64(time.Second))
 	}
+}
+
+// The Codex access token is sent to the backend on every request, so only
+// loopback test backends may use plain HTTP.
+func validateBackendURL(raw string) error {
+	target, err := url.Parse(raw)
+	if err != nil || target.Host == "" {
+		return fmt.Errorf("invalid backend base URL %q", raw)
+	}
+	host := target.Hostname()
+	ip := net.ParseIP(host)
+	loopback := host == "localhost" || (ip != nil && ip.IsLoopback())
+	if target.Scheme != "https" && !(target.Scheme == "http" && loopback) {
+		return fmt.Errorf("backend base URL must use https (plain http is allowed only for loopback): %q", raw)
+	}
+	return nil
+}
+
+func splitCommaList(value string) []string {
+	var result []string
+	for _, part := range strings.Split(value, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
 }
 
 func envString(name, fallback string) string {

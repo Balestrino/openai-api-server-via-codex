@@ -597,6 +597,22 @@ async def test_contract_responses_lifecycle_and_streaming(
         await contract_client.responses.retrieve(created.id)
 
 
+async def test_contract_chat_rejects_unbounded_choice_count(
+    contract_client: AsyncOpenAI,
+) -> None:
+    from openai import BadRequestError
+
+    for stream in (False, True):
+        with pytest.raises(BadRequestError) as error:
+            await contract_client.chat.completions.create(
+                model="gpt-5.6-luna",
+                messages=[{"role": "user", "content": "hello"}],
+                n=129,
+                stream=stream,
+            )
+        assert error.value.param == "n"
+
+
 async def test_contract_chat_lifecycle_streaming_and_tools(
     runtime_server: tuple[str, str], contract_client: AsyncOpenAI
 ) -> None:

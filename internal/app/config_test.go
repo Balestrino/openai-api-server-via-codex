@@ -123,3 +123,43 @@ func TestForegroundServeAllowsPortZeroButDaemonRunRejectsIt(t *testing.T) {
 		t.Fatalf("daemon-run --port 0 error = %v", err)
 	}
 }
+
+func TestAllowedHostsFromFileEnvironmentAndFlag(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[server]\nallowed_hosts = [\"file.lan\"]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	if err := cfg.applyConfigFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.AllowedHosts) != 1 || cfg.AllowedHosts[0] != "file.lan" {
+		t.Fatalf("file allowed hosts = %#v", cfg.AllowedHosts)
+	}
+	t.Setenv("OPENAI_VIA_CODEX_ALLOWED_HOSTS", "env.lan, other.lan")
+	cfg.applyEnvironment()
+	if strings.Join(cfg.AllowedHosts, ",") != "env.lan,other.lan" {
+		t.Fatalf("env allowed hosts = %#v", cfg.AllowedHosts)
+	}
+	cfg.AllowedHosts = []string{"flag.lan"}
+	args := strings.Join(serverCommandArgs("serve", cfg), " ")
+	if !strings.Contains(args, "--allowed-hosts flag.lan") {
+		t.Fatalf("serve args = %q", args)
+	}
+}
+
+func TestBackendURLMustUseHTTPSExceptLoopback(t *testing.T) {
+	missingAuth := filepath.Join(t.TempDir(), "missing-auth.json")
+	for _, command := range []string{"serve", "start"} {
+		err := Run([]string{command, "--backend-base-url", "http://codex.example/backend-api/codex", "--auth-json", missingAuth}, "test")
+		if err == nil || !strings.Contains(err.Error(), "backend base URL") {
+			t.Fatalf("%s plain-HTTP backend error = %v", command, err)
+		}
+	}
+	for _, backend := range []string{"http://127.0.0.1:9/codex", "http://localhost:9/codex", "http://[::1]:9/codex", "https://codex.example/codex"} {
+		err := Run([]string{"serve", "--backend-base-url", backend, "--auth-json", missingAuth}, "test")
+		if err == nil || !strings.Contains(err.Error(), "auth_file_not_found") {
+			t.Fatalf("backend %s error = %v", backend, err)
+		}
+	}
+}

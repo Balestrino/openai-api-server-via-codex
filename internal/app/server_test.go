@@ -99,7 +99,7 @@ func TestRouterRejectsNonV1AndNonGETHealthRequests(t *testing.T) {
 func TestUnhandledPanicReturnsRedactedOpenAIError(t *testing.T) {
 	s := &server{cfg: config{}}
 	response := httptest.NewRecorder()
-	s.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+	s.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost/v1/models", nil))
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
@@ -143,7 +143,7 @@ func TestRequestCompletionLogIsEnabledWithoutVerbose(t *testing.T) {
 
 	s := &server{cfg: config{}, backend: faultBackend{}}
 	response := httptest.NewRecorder()
-	s.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+	s.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost/v1/models", nil))
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d", response.Code)
 	}
@@ -177,7 +177,7 @@ func TestDecodeObjectRejectsNullAndTrailingData(t *testing.T) {
 func TestInvalidProxyTraversalIsRejectedBeforeBackend(t *testing.T) {
 	s := &server{cfg: config{}}
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/v1/files/%2e%2e/secrets", nil)
+	request := httptest.NewRequest(http.MethodGet, "http://localhost/v1/files/%2e%2e/secrets", nil)
 	s.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
@@ -371,5 +371,76 @@ func TestCompatibilityRoutesDoNotCaptureUnknownProxyEndpoints(t *testing.T) {
 	}
 	if !isChatResourceRoute(http.MethodGet, "chatcmpl_1/messages") {
 		t.Fatal("chat messages route not recognized")
+	}
+}
+
+func TestRejectsUnknownHostNamesWithoutAPIKey(t *testing.T) {
+	s := &server{cfg: config{AllowedHosts: []string{"llm.lan"}}, chats: newChatStore(10)}
+	for host, want := range map[string]int{
+		"attacker.example:18080": http.StatusForbidden,
+		"attacker.example":       http.StatusForbidden,
+		"localhost:18080":        http.StatusOK,
+		"api.localhost:18080":    http.StatusOK,
+		"127.0.0.1:18080":        http.StatusOK,
+		"[::1]:18080":            http.StatusOK,
+		"192.168.1.20:18080":     http.StatusOK,
+		"LLM.lan:18080":          http.StatusOK,
+	} {
+		request := httptest.NewRequest(http.MethodGet, "/v1/chat/completions", nil)
+		request.Host = host
+		response := httptest.NewRecorder()
+		s.ServeHTTP(response, request)
+		if response.Code != want {
+			t.Fatalf("Host %q status = %d, want %d: %s", host, response.Code, want, response.Body.String())
+		}
+	}
+
+	health := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	health.Host = "attacker.example"
+	response := httptest.NewRecorder()
+	s.ServeHTTP(response, health)
+	if response.Code != http.StatusOK {
+		t.Fatalf("health status = %d", response.Code)
+	}
+}
+
+func TestAPIKeyAllowsAnyHost(t *testing.T) {
+	s := &server{cfg: config{APIKey: "expected-secret"}, chats: newChatStore(10)}
+	request := httptest.NewRequest(http.MethodGet, "/v1/chat/completions", nil)
+	request.Host = "proxy.example.com"
+	request.Header.Set("Authorization", "Bearer expected-secret")
+	response := httptest.NewRecorder()
+	s.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestRejectsCrossOriginBrowserWrites(t *testing.T) {
+	s := &server{cfg: config{}, chats: newChatStore(10)}
+	for name, headers := range map[string]map[string]string{
+		"sec-fetch-site": {"Sec-Fetch-Site": "cross-site"},
+		"origin":         {"Origin": "http://attacker.example"},
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{"))
+		request.Host = "localhost:18080"
+		request.Header.Set("Content-Type", "text/plain")
+		for key, value := range headers {
+			request.Header.Set(key, value)
+		}
+		response := httptest.NewRecorder()
+		s.ServeHTTP(response, request)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("%s: status = %d: %s", name, response.Code, response.Body.String())
+		}
+	}
+
+	// Non-browser clients such as openai-python send neither header.
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{"))
+	request.Host = "localhost:18080"
+	response := httptest.NewRecorder()
+	s.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("SDK-style request status = %d: %s", response.Code, response.Body.String())
 	}
 }

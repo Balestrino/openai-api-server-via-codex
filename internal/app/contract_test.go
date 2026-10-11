@@ -557,7 +557,7 @@ func TestBackendInterfaceMasksInjectedInternalFault(t *testing.T) {
 		responses: newResponseStore(1), chats: newChatStore(1),
 	}
 	response := httptest.NewRecorder()
-	s.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"input":"hello"}`)))
+	s.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", strings.NewReader(`{"input":"hello"}`)))
 	if response.Code != http.StatusInternalServerError || strings.Contains(response.Body.String(), "internal secret detail") {
 		t.Fatalf("fault response = %d %s", response.Code, response.Body.String())
 	}
@@ -570,4 +570,49 @@ func containsString(values []any, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestChatChoiceCountIsBoundedBeforeBackend(t *testing.T) {
+	environment := newContractEnvironment(t, nil)
+	messages := []any{map[string]any{"role": "user", "content": "hello"}}
+	for _, n := range []any{0, 129, 100000000, 1.5} {
+		for _, stream := range []bool{false, true} {
+			document := environment.json(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+				"model": "gpt-5.6-luna", "messages": messages, "n": n, "stream": stream,
+			}, http.StatusBadRequest)
+			if mapAny(document["error"])["param"] != "n" {
+				t.Fatalf("n=%v stream=%t error = %#v", n, stream, document)
+			}
+		}
+	}
+	if requests := environment.upstream.Requests(); len(requests) != 0 {
+		t.Fatalf("backend received %d requests", len(requests))
+	}
+	environment.json(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"model": "gpt-5.6-luna", "messages": messages, "n": 128,
+	}, http.StatusOK)
+}
+
+func TestOversizedUploadsAreRejectedBeforeBackend(t *testing.T) {
+	environment := newContractEnvironment(t, nil)
+	body := bytes.Repeat([]byte("a"), maxUploadBytes+1)
+	for _, path := range []string{"/v1/audio/transcriptions", "/v1/files"} {
+		request, err := http.NewRequest(http.MethodPost, environment.server.URL+path, bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+contractAPIKey)
+		request.Header.Set("Content-Type", "application/octet-stream")
+		response, err := environment.client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Fatalf("%s status = %d", path, response.StatusCode)
+		}
+	}
+	if requests := environment.upstream.Requests(); len(requests) != 0 {
+		t.Fatalf("backend received %d requests", len(requests))
+	}
 }

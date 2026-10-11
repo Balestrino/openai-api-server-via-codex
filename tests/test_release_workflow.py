@@ -15,8 +15,8 @@ def test_release_workflow_uses_node24_actions() -> None:
     workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
 
     node24_actions = {
-        "actions/upload-artifact@v7",
-        "actions/download-artifact@v8",
+        "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+        "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
         "docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8",
         "docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c",
         "docker/login-action@dbcb813823bdd20940b903addbd779551569679f",
