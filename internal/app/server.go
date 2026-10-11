@@ -66,7 +66,7 @@ func serve(cfg config, version string) error {
 		return err
 	}
 	boundAddress := listener.Addr().String()
-	httpServer := &http.Server{Addr: boundAddress, Handler: s, ReadHeaderTimeout: 10 * time.Second}
+	httpServer := &http.Server{Addr: boundAddress, Handler: s, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
 	log.Print(startupLogMessage(version, boundAddress))
 	if cfg.Verbose {
 		log.Printf(
@@ -855,6 +855,7 @@ func (s *server) audio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.release()
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
 	resp, err := s.backend.transcribe(r.Context(), r.Header, r.Body)
 	if err != nil {
 		writeBackendError(w, err)
@@ -926,6 +927,7 @@ func (s *server) proxy(w http.ResponseWriter, r *http.Request, path string) {
 		return
 	}
 	defer s.release()
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
 	resp, err := s.backend.proxy(r.Context(), r.Method, path, r.URL.RawQuery, r.Header, r.Body)
 	if err != nil {
 		writeBackendError(w, err)

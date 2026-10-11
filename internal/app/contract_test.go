@@ -592,3 +592,27 @@ func TestChatChoiceCountIsBoundedBeforeBackend(t *testing.T) {
 		"model": "gpt-5.6-luna", "messages": messages, "n": 128,
 	}, http.StatusOK)
 }
+
+func TestOversizedUploadsAreRejectedBeforeBackend(t *testing.T) {
+	environment := newContractEnvironment(t, nil)
+	body := bytes.Repeat([]byte("a"), maxUploadBytes+1)
+	for _, path := range []string{"/v1/audio/transcriptions", "/v1/files"} {
+		request, err := http.NewRequest(http.MethodPost, environment.server.URL+path, bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+contractAPIKey)
+		request.Header.Set("Content-Type", "application/octet-stream")
+		response, err := environment.client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Fatalf("%s status = %d", path, response.StatusCode)
+		}
+	}
+	if requests := environment.upstream.Requests(); len(requests) != 0 {
+		t.Fatalf("backend received %d requests", len(requests))
+	}
+}

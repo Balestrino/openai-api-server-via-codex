@@ -20,6 +20,7 @@ var defaultModels = []string{"gpt-5.1", "gpt-5.1-codex-max", "gpt-5.1-codex-mini
 
 const maxSSEEventBytes = 128 << 20
 const replayBodyMemoryLimit = 1 << 20
+const maxUploadBytes = 32 << 20
 
 type backend struct {
 	cfg    config
@@ -358,6 +359,10 @@ func (b *backend) proxyTo(ctx context.Context, method, baseURL, path, query stri
 	b.debugf("codex.proxy.start method=%s path=%s", method, redactSensitive(target.EscapedPath()))
 	replay, err := newReplayBody(body)
 	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return nil, &backendError{413, "Request body too large."}
+		}
 		return nil, &backendError{400, "Read proxy request body failed."}
 	}
 	defer replay.Close()
