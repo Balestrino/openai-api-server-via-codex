@@ -598,6 +598,13 @@ func (s *server) chatCollection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "Invalid JSON body.", "invalid_request_error", nil, nil)
 		return
 	}
+	if body["n"] != nil {
+		// Every choice is materialized in memory; OpenAI caps n at 128.
+		if n, ok := exactInt(body["n"]); !ok || n < 1 || n > 128 {
+			writeError(w, 400, "n must be an integer between 1 and 128.", "invalid_request_error", strPtr("n"), nil)
+			return
+		}
+	}
 	responsePayload := chatToResponse(body, s.cfg.Model)
 	legacy := body["functions"] != nil || body["function_call"] != nil
 	if boolValue(body["stream"]) {

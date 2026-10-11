@@ -571,3 +571,24 @@ func containsString(values []any, want string) bool {
 	}
 	return false
 }
+
+func TestChatChoiceCountIsBoundedBeforeBackend(t *testing.T) {
+	environment := newContractEnvironment(t, nil)
+	messages := []any{map[string]any{"role": "user", "content": "hello"}}
+	for _, n := range []any{0, 129, 100000000, 1.5} {
+		for _, stream := range []bool{false, true} {
+			document := environment.json(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+				"model": "gpt-5.6-luna", "messages": messages, "n": n, "stream": stream,
+			}, http.StatusBadRequest)
+			if mapAny(document["error"])["param"] != "n" {
+				t.Fatalf("n=%v stream=%t error = %#v", n, stream, document)
+			}
+		}
+	}
+	if requests := environment.upstream.Requests(); len(requests) != 0 {
+		t.Fatalf("backend received %d requests", len(requests))
+	}
+	environment.json(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"model": "gpt-5.6-luna", "messages": messages, "n": 128,
+	}, http.StatusOK)
+}
