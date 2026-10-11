@@ -4,6 +4,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -131,6 +133,9 @@ func Run(args []string, version string) error {
 	}
 	if cfg.MaxStored < 0 || cfg.Concurrency < 0 || cfg.Port < minimumPort || cfg.Port > 65535 || timeout <= 0 || stopTimeout <= 0 {
 		return errors.New("port, timeout, max-stored-items, max-concurrent-requests, or stop-timeout is invalid")
+	}
+	if err := validateBackendURL(cfg.BackendURL); err != nil {
+		return err
 	}
 	cfg.Timeout = time.Duration(timeout * float64(time.Second))
 	cfg.StopTimeout = time.Duration(stopTimeout * float64(time.Second))
@@ -337,6 +342,22 @@ func (file *configFile) apply(c *config) {
 	if file.Daemon.StopTimeout != nil {
 		c.StopTimeout = time.Duration(*file.Daemon.StopTimeout * float64(time.Second))
 	}
+}
+
+// The Codex access token is sent to the backend on every request, so only
+// loopback test backends may use plain HTTP.
+func validateBackendURL(raw string) error {
+	target, err := url.Parse(raw)
+	if err != nil || target.Host == "" {
+		return fmt.Errorf("invalid backend base URL %q", raw)
+	}
+	host := target.Hostname()
+	ip := net.ParseIP(host)
+	loopback := host == "localhost" || (ip != nil && ip.IsLoopback())
+	if target.Scheme != "https" && !(target.Scheme == "http" && loopback) {
+		return fmt.Errorf("backend base URL must use https (plain http is allowed only for loopback): %q", raw)
+	}
+	return nil
 }
 
 func splitCommaList(value string) []string {

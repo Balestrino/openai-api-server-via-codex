@@ -53,6 +53,11 @@ func runDaemonCommand(command string, args []string) error {
 		cfg.Timeout = time.Duration(*backendTimeout * float64(time.Second))
 	}
 	cfg.AllowedHosts = splitCommaList(allowedHosts)
+	if command == "start" {
+		if err := validateBackendURL(cfg.BackendURL); err != nil {
+			return err
+		}
+	}
 	if cfg.Port < 1 || cfg.Port > 65535 || stopSeconds <= 0 || cfg.Timeout <= 0 || cfg.MaxStored < 0 || cfg.Concurrency < 0 {
 		return errors.New("port, timeout, storage, concurrency, or stop-timeout is invalid")
 	}

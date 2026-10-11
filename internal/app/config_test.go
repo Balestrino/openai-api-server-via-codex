@@ -147,3 +147,19 @@ func TestAllowedHostsFromFileEnvironmentAndFlag(t *testing.T) {
 		t.Fatalf("serve args = %q", args)
 	}
 }
+
+func TestBackendURLMustUseHTTPSExceptLoopback(t *testing.T) {
+	missingAuth := filepath.Join(t.TempDir(), "missing-auth.json")
+	for _, command := range []string{"serve", "start"} {
+		err := Run([]string{command, "--backend-base-url", "http://codex.example/backend-api/codex", "--auth-json", missingAuth}, "test")
+		if err == nil || !strings.Contains(err.Error(), "backend base URL") {
+			t.Fatalf("%s plain-HTTP backend error = %v", command, err)
+		}
+	}
+	for _, backend := range []string{"http://127.0.0.1:9/codex", "http://localhost:9/codex", "http://[::1]:9/codex", "https://codex.example/codex"} {
+		err := Run([]string{"serve", "--backend-base-url", backend, "--auth-json", missingAuth}, "test")
+		if err == nil || !strings.Contains(err.Error(), "auth_file_not_found") {
+			t.Fatalf("backend %s error = %v", backend, err)
+		}
+	}
+}
