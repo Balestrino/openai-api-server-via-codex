@@ -134,7 +134,12 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if r.URL.Path != "/healthz" || s.cfg.Verbose {
-			log.Printf("request.end method=%s path=%s status=%d bytes=%d duration_ms=%.1f", r.Method, redactSensitive(r.URL.Path), capture.statusCode(), capture.bytes, float64(time.Since(started).Microseconds())/1000)
+			status := capture.statusCode()
+			// The client went away before the handler finished; log it as nginx's 499, not as the error written to a closed connection.
+			if errors.Is(r.Context().Err(), context.Canceled) && status != http.StatusSwitchingProtocols {
+				status = 499
+			}
+			log.Printf("request.end method=%s path=%s status=%d bytes=%d duration_ms=%.1f", r.Method, redactSensitive(r.URL.Path), status, capture.bytes, float64(time.Since(started).Microseconds())/1000)
 		}
 	}()
 	s.serveHTTP(capture, r)

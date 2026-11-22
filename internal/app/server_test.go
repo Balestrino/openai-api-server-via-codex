@@ -3,6 +3,7 @@ package app
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -162,6 +163,42 @@ func TestRequestCompletionLogIsEnabledWithoutVerbose(t *testing.T) {
 	s.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if output.Len() != 0 {
 		t.Fatalf("default health check produced access-log noise: %s", output.String())
+	}
+}
+
+type disconnectBackend struct {
+	faultBackend
+	cancel context.CancelFunc
+}
+
+func (b disconnectBackend) collect(ctx context.Context, _ map[string]any) (map[string]any, error) {
+	b.cancel()
+	return nil, ctx.Err()
+}
+
+func TestRequestCompletionLogReportsClientDisconnectAs499(t *testing.T) {
+	var output bytes.Buffer
+	previousOutput := log.Writer()
+	previousFlags := log.Flags()
+	log.SetOutput(&output)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(previousOutput)
+		log.SetFlags(previousFlags)
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := &server{
+		cfg: config{}, backend: disconnectBackend{cancel: cancel},
+		responses: newResponseStore(1), chats: newChatStore(1),
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", strings.NewReader(`{"input":"hello"}`)).WithContext(ctx)
+	s.ServeHTTP(httptest.NewRecorder(), request)
+
+	logs := output.String()
+	if !strings.Contains(logs, "status=499") {
+		t.Fatalf("client disconnect not logged as 499: %s", logs)
 	}
 }
 
