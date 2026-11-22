@@ -1,6 +1,6 @@
 module github.com/hotchpotch/openai-api-server-via-codex
 
-go 1.26.9
+go 1.26.11
 
 require (
 	github.com/coder/websocket v1.8.15

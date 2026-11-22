@@ -1,8 +1,10 @@
 # HEAD
 
-- Build with Go 1.26.9. Binaries built with Go 1.23, which no longer receives
+- Build with Go 1.26.11. Binaries built with Go 1.23, which no longer receives
   security fixes, contained 36 known standard-library vulnerabilities. CI now
-  runs `govulncheck`.
+  runs `govulncheck`. Go 1.26.11 also fixes an HTTP/1 server crash in
+  `net/http` (GO-2026-6859) and distrusts compromised intermediate
+  certificates in `crypto/x509` (GO-2026-6809), both present in Go 1.26.9.
 - Without an incoming API key, `/v1/...` requests are accepted only when the
   `Host` header is `localhost`, a `*.localhost` name, or an IP address, which
   blocks DNS-rebinding attacks from web pages. Allow other host names with
