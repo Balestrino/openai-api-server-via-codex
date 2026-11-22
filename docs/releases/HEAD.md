@@ -21,3 +21,6 @@
 - Pin every GitHub Action in CI and release workflows to a full commit SHA,
   so a moved or compromised tag cannot change what builds and publishes the
   release artifacts.
+- Log requests whose client disconnected before the response was complete as
+  `status=499` in the `request.end` access log, instead of the `500` the
+  server tried to write to the closed connection.
