@@ -1,12 +1,7 @@
 from __future__ import annotations
 
-import sys
+import tomllib
 from pathlib import Path
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover - exercised on Python 3.10
-    import tomli as tomllib
 
 from openai_api_server_via_codex import __version__
 
@@ -14,7 +9,7 @@ from openai_api_server_via_codex import __version__
 def test_package_version_metadata_is_consistent() -> None:
     pyproject = tomllib.loads(Path("pyproject.toml").read_text())
 
-    assert pyproject["project"]["version"] == "0.2.2"
+    assert pyproject["project"]["version"] == "0.3.0"
     assert __version__ == pyproject["project"]["version"]
 
 
