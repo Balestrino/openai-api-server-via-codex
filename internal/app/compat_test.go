@@ -88,6 +88,29 @@ func TestPrepareResponseNormalizesReasoningAndDefaults(t *testing.T) {
 	}
 }
 
+func TestPrepareResponseSendsSystemMessagesAsDeveloper(t *testing.T) {
+	parts := []any{map[string]any{"type": "input_text", "text": "Be brief."}}
+	got := prepareResponse(map[string]any{"input": []any{
+		map[string]any{"type": "message", "role": "system", "content": parts},
+		map[string]any{"role": "system", "content": "Plain."},
+		map[string]any{"role": "user", "content": "hi"},
+	}}, "gpt-default")
+	input := sliceAny(got["input"])
+	if len(input) != 3 {
+		t.Fatalf("input = %#v", input)
+	}
+	first, second, third := mapAny(input[0]), mapAny(input[1]), mapAny(input[2])
+	if first["role"] != "developer" || first["type"] != "message" || len(sliceAny(first["content"])) != 1 {
+		t.Fatalf("system message with parts = %#v", first)
+	}
+	if second["role"] != "developer" || second["content"] != "Plain." {
+		t.Fatalf("system message with text = %#v", second)
+	}
+	if third["role"] != "user" {
+		t.Fatalf("user message = %#v", third)
+	}
+}
+
 func TestAsyncResponseHistoryPreservesPendingCalls(t *testing.T) {
 	items := []any{
 		map[string]any{"type": "function_call", "call_id": "call_async", "name": "lookup", "arguments": "{}", "async": true, "future_field": "kept"},
