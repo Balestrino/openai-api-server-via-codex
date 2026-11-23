@@ -135,7 +135,14 @@ func normalizeInputItem(value any) any {
 		result["call_id"] = valueOr(item["call_id"], "unknown")
 		return result
 	}
-	return cloneMap(item)
+	result := cloneMap(item)
+	// The Codex backend answers 400 to a system message whose content is a
+	// list of parts (what gateways such as Bifrost send) but accepts the same
+	// message as developer, the role that replaces system for these models.
+	if result["role"] == "system" {
+		result["role"] = "developer"
+	}
+	return result
 }
 
 func prepareResponse(body map[string]any, model string) map[string]any {
