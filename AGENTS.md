@@ -19,9 +19,12 @@ client API rather than only raw HTTP payloads.
 
 ## Environment
 
-- Use Go 1.26.11 or newer for the server, CLI, and Go tests.
-- Use Python 3.10 or newer only for the `uvx` launcher, OpenAI SDK consumer
-  tests, and packaging/release tooling.
+- Use Go 1.27.4 or newer for the server, CLI, and Go tests.
+- Python is used only for the `uvx` launcher, OpenAI SDK consumer tests, and
+  packaging/release tooling. The published launcher supports Python 3.10 or
+  newer (`requires-python`); development, tox, and release tooling use Python
+  3.11 or newer (`.python-version`, `[tool.uv] environments`). CI smoke-tests
+  the built launcher on Python 3.10, so keep launcher code 3.10-compatible.
 - Use `uv` for Python development dependencies and validation commands.
 - The default foreground server binds to `127.0.0.1:18080`.
 - Do not commit local virtualenv, cache, tox, pytest, or editor artifacts.
@@ -182,7 +185,15 @@ python scripts/release-notes.py vX.Y.Z
   local concurrency cap.
 - Codex backend timeout defaults to 300 seconds. Keep CLI/env/config/default
   fallback paths, config templates, README examples, and tests aligned when
-  changing that value.
+  changing that value. Response streams apply it between events, not to the
+  whole stream.
+- Retry transient Codex failures only before any output reaches the client, up
+  to `max_retries` (default 2, `0` disables), exposed through CLI/env/config.
+  Hold lifecycle events until an attempt produces output, and never retry after
+  that. Treat a stream that closes without a terminal event as an error.
+- When aligning failure handling with the upstream `openai/codex` client, follow
+  it only where the result is still sound as an OpenAI API. Prefer official
+  `openai-python` behavior when the two differ.
 - README examples should use the current preferred documented model. Keep the
   examples on `gpt-6-luna` unless there is a deliberate model guidance change.
   Do not confuse README example models with the server's compatibility default;
@@ -224,6 +235,24 @@ python scripts/release-notes.py vX.Y.Z
 - Keep `.github/workflows/ci.yml` aligned with the local required validation
   command. It should run on pushes to `main`, pull requests, and manual
   dispatch.
+- Workflow action dependencies are locked in `.github/workflows/actions.lock`.
+  Reference actions by full semver tags, never edit the lockfile by hand, and
+  run `gh actions-lock` after adding or changing any `uses:` line;
+  `verify-lockfile.yml` runs `gh actions-lock --verify` in CI. Reference
+  same-repository actions with `$/`, not `./`, and pin reusable workflows from
+  other repositories by full commit SHA because the lockfile does not cover
+  them.
+- Dependency versions are pinned: Go modules by `go.mod`/`go.sum`, Python dev
+  dependencies by `uv.lock` (tox uses `uv-venv-lock-runner`), and Dockerfile
+  base images by `tag@sha256:` digest. Do not reintroduce floating image tags
+  or unlocked tox environments.
+- Dependabot (`.github/dependabot.yml`) opens security updates only for GitHub
+  Actions, Go modules, and uv; version updates are disabled with
+  `open-pull-requests-limit: 0`. `dependabot-auto-merge.yml` enables squash
+  auto-merge on Dependabot PRs, which GitHub merges after the required checks
+  on `main` pass. Keep the required checks aligned when renaming CI jobs.
+  Dependabot has no Docker security updates, so refresh base image tags and
+  digests by hand.
 - Incoming API key authentication is optional and disabled by default. When
   `--api-key`, `OPENAI_VIA_CODEX_API_KEY`, or `[server].api_key` is configured,
   require `Authorization: Bearer <api_key>` for `/v1/...` routes only; keep
